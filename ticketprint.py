@@ -38,11 +38,23 @@ ancho_impresora = int(config["Impresora"]["ancho"])
 # Clase Impresora
 class Impresora:
     def __init__(self, idvendor, idproduct, ancho):
-        self.printer = Usb(idvendor, idproduct)
+        self.idvendor = idvendor
+        self.idproduct = idproduct
         self.ancho = ancho
+        self.conectar()
 
+    def conectar(self):
+        self.printer = Usb(self.idvendor, self.idproduct)
+    
     def imprimir_texto(self, texto, opciones):
-        self.printer.set(**opciones)
+        align = opciones.get("align", 'left')
+        font = opciones.get("font", 'a')
+        height = opciones.get("height", 16)  # Valor predeterminado si no se proporciona
+        bold = opciones.get("bold", False)
+    
+        # Configura la alineación, fuente, y estilo
+        self.printer.set(align=align, font=font, height=height, width=height, bold=bold)
+    
         self.printer.text(texto + '\n')
 
     def imprimir_imagen(self, imagen):
@@ -179,7 +191,7 @@ def eliminar_comprobantes_antiguos(carpeta_guardado, dias_limite):
             os.remove(ruta_archivo)
             logging.info(f"Comprobante {archivo} eliminado por tener más de {dias_limite} días.")
 
-def procesar_comprobante(comprobante, impresora):
+def procesar_comprobante(comprobante):
     numero_completo = comprobante.get('numero_completo', '')
     idcomprobante = comprobante.get('idcomprobante', '')
     url_detalle_comprobante = f"{url_base}app-get-comprobante.php?id={idcomprobante}"
@@ -187,6 +199,8 @@ def procesar_comprobante(comprobante, impresora):
     detalle_comprobante = obtener_detalle_comprobante(url_detalle_comprobante)
     
     if detalle_comprobante:
+        # Reiniciar la conexión con la impresora para cada comprobante
+        impresora = Impresora(idvendor, idproduct, ancho_impresora)
         imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impresora)
 
 def marcar_en_ejecucion():
@@ -198,15 +212,13 @@ def desmarcar_en_ejecucion():
         os.remove('en_ejecucion.txt')
 
 def ciclo_principal():
-    impresora = Impresora(idvendor, idproduct, ancho_impresora)
-    
     while True:
         marcar_en_ejecucion()
 
         comprobantes = obtener_comprobantes(f"{url_base}app-get-comprobantes.php?ptoVta={pto_vta}")
         if comprobantes:
             for comprobante in comprobantes:
-                procesar_comprobante(comprobante, impresora)
+                procesar_comprobante(comprobante)
             eliminar_comprobantes_antiguos('comprobantes_guardados', dias_a_eliminar)
         else:
             logging.info("No se encontraron comprobantes.")
