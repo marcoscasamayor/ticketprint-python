@@ -4,7 +4,6 @@ from escpos.printer import Usb
 import base64
 import os
 import time
-import random
 from datetime import datetime, timedelta
 from PIL import Image
 from PIL import ImageOps
@@ -153,23 +152,17 @@ def imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo):
 
         print(f"Comprobante impreso y guardado en: {ruta_archivo}")
     except Exception as e:
-        print(f"Error al imprimir y guardar comprobanteI: {e}")
+        print(f"Error al imprimir y guardar comprobante: {e}")
 
-def obtener_comprobantes(url_comprobantes, reintentos=3):
-    intento = 0
-    while intento < reintentos:
-        try:
-            response = requests.get(url_comprobantes)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            intento += 1
-            espera = 2 ** intento + random.uniform(0, 1)
-            print(f"Error al obtener comprobantes: {e}. Reintentando en {espera:.2f} segundos...")
-            time.sleep(espera)
-    print("Error persistente al obtener comprobantes. Saltando este ciclo.")
-    return None
-
+def obtener_comprobantes(url_comprobantes):
+    try:
+        response = requests.get(url_comprobantes)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener comprobantes: {e}")
+        return None
+    
 
 def procesar_comprobantes(comprobantes):
     if comprobantes:
