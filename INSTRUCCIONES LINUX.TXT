@@ -1,0 +1,55 @@
+
+Para facilitar el proceso, a continuación, 
+proporciono una guía paso a paso para ayudarte a configurar tu script como un servicio utilizando systemd en sistemas Linux. 
+Ten en cuenta que las instrucciones pueden variar ligeramente según la distribución específica de Linux que estés utilizando.
+
+Crea un archivo de servicio:
+
+Crea un archivo de servicio para systemd. Puedes llamarlo, por ejemplo, ticketprint.service. Puedes usar tu editor de texto favorito para crear este archivo:
+	sudo nano /etc/systemd/system/ticketprint.service
+
+Luego, agrega el siguiente contenido al archivo:
+	[Unit]
+	Description=TicketPrint
+	After=network.target
+	
+	[Service]
+	ExecStart=/usr/bin/python3 /home/sc3/Documentos/Python/TicketPrint/ticketprint.py
+	Restart=always
+	User=sc3
+	Group=sc3
+	WorkingDirectory=/home/sc3/Documentos/Python/TicketPrint/
+
+	[Install]
+	WantedBy=multi-user.target
+
+
+Asegúrate de ajustar la ruta del intérprete de Python (/usr/bin/python3) y la ruta de tu script según sea necesario.
+
+Recarga systemd:
+
+Después de guardar el archivo de servicio, recarga systemd para que reconozca los cambios:
+	sudo systemctl daemon-reload
+
+Habilita y arranca el servicio:
+
+Habilita el servicio para que se inicie automáticamente en el arranque:
+	sudo systemctl enable ticketprint.service
+	sudo systemctl start ticketprint.service
+
+Verifica el estado del servicio:
+
+Puedes verificar el estado del servicio para asegurarte de que se esté ejecutando sin problemas:
+	sudo systemctl status ticketprint.service
+
+Esto te mostrará información sobre el estado del servicio, incluyendo si hay algún error o problema.
+
+Con estos pasos, deberías haber configurado tu script como un servicio systemd. 
+Puedes reiniciar tu sistema para asegurarte de que el servicio se inicie automáticamente durante el arranque. 
+Además, puedes utilizar comandos como sudo systemctl stop ticketprint.service y sudo systemctl restart ticketprint.service 
+para detener y reiniciar el servicio según sea necesario.
+
+DETENER:
+	sudo systemctl stop ticketprint.service
+REINICIAR:
+	sudo systemctl restart ticketprint.service
