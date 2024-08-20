@@ -5,7 +5,7 @@ import random
 import requests
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image
 from PIL import ImageOps
 from io import BytesIO
@@ -13,9 +13,22 @@ import configparser
 import urllib.request
 from escpos.printer import Usb
 
+# Obtener la fecha actual y la fecha de ayer
+hoy = datetime.now().strftime('%Y-%m-%d')
+ayer = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+
+# Nombre del log basado en la fecha actual
+log_filename = f'comprobante_{hoy}.log'
+
 # Configura el logging
-logging.basicConfig(filename='comprobante.log', level=logging.INFO, 
+logging.basicConfig(filename=log_filename, level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
+
+# Eliminar el log del día anterior si existe
+log_ayer = f'comprobante_{ayer}.log'
+if os.path.exists(log_ayer):
+    os.remove(log_ayer)
+    logging.info(f"Log del día {ayer} eliminado.")
 
 # Carga configuración
 ruta_actual = os.getcwd()
@@ -84,7 +97,6 @@ def obtener_comprobantes(url_comprobantes, reintentos=3):
         try:
             response = requests.get(url_comprobantes)
             response.raise_for_status()
-            logging.info("Comprobantes obtenidos con éxito.")
             return response.json()
         except requests.exceptions.RequestException as e:
             intento += 1
@@ -136,12 +148,7 @@ def imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impreso
         ruta_archivo = os.path.join(carpeta_guardado, nombre_archivo)
 
         if os.path.exists(ruta_archivo):
-            with open(ruta_archivo, 'r') as archivo_existente:
-                contenido_existente = archivo_existente.read()
-            contenido_existente = contenido_existente.replace("\n", "\r\n")
-            if contenido_existente == '\r\n'.join(detalle_comprobante):
-                logging.info(f"Comprobante {numero_completo} ya impreso y sin cambios. Ignorando.")
-                return
+            return
         
         for linea in detalle_comprobante:
             if linea:
@@ -152,7 +159,7 @@ def imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impreso
                     impresora.imprimir_imagen(imagen)
                     impresora.imprimir_texto("\r\n", {})
                 elif "#url#" in linea:
-                    url_imagen = linea.split("#img#")[1]
+                    url_imagen = linea.split("#url#")[1]
                     imagen = descargar_imagen_desde_url(url_imagen)
                     impresora.imprimir_imagen(imagen)
                 elif "#logo#" in linea:
@@ -180,7 +187,7 @@ def imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impreso
 
         logging.info(f"Comprobante impreso y guardado en: {ruta_archivo}")
     except Exception as e:
-        logging.error(f"Error al imprimir y guardar comprobante: {e}")
+        logging.error(f"Error al imprimir y guardar comprobante: {e}, comprobante: {detalle_comprobante}")
 
 def eliminar_comprobantes_antiguos(carpeta_guardado, dias_limite):
     for archivo in os.listdir(carpeta_guardado):
@@ -196,20 +203,23 @@ def procesar_comprobante(comprobante):
     idcomprobante = comprobante.get('idcomprobante', '')
     url_detalle_comprobante = f"{url_base}app-get-comprobante.php?id={idcomprobante}"
 
-    detalle_comprobante = obtener_detalle_comprobante(url_detalle_comprobante)
-    
-    if detalle_comprobante:
-        # Reiniciar la conexión con la impresora para cada comprobante
-        impresora = Impresora(idvendor, idproduct, ancho_impresora)
-        imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impresora)
+    carpeta_guardado = 'comprobantes_guardados'
+    ruta_archivo = os.path.join(carpeta_guardado, f"{numero_completo}.txt")
+
+    if not os.path.exists(ruta_archivo):
+        detalle_comprobante = obtener_detalle_comprobante(url_detalle_comprobante)
+        if detalle_comprobante:
+            # Reiniciar la conexión con la impresora para cada comprobante
+            impresora = Impresora(idvendor, idproduct, ancho_impresora)
+            imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impresora)
 
 def marcar_en_ejecucion():
     with open('en_ejecucion.txt', 'w') as estado:
-        estado.write('En ejecución')
+        estado.write("1")
 
 def desmarcar_en_ejecucion():
-    if os.path.exists('en_ejecucion.txt'):
-        os.remove('en_ejecucion.txt')
+    with open('en_ejecucion.txt', 'w') as estado:
+        estado.write("0")
 
 def ciclo_principal():
     while True:
