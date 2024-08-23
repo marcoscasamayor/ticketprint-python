@@ -180,6 +180,7 @@ def imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impreso
                     }
                     impresora.imprimir_texto(aDetalleLinea[2], opciones)
         
+        impresora.cortar()
         impresora.cerrar()
 
         with open(ruta_archivo, 'w') as archivo:
