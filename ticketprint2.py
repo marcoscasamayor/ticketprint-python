@@ -12,6 +12,7 @@ import urllib.request
 from escpos.printer import Usb
 import tkinter as tk
 from tkinter import ttk, messagebox
+from tkinter.scrolledtext import ScrolledText
 from pystray import MenuItem as item
 import pystray
 from PIL import Image as PILImage
@@ -19,6 +20,7 @@ import threading
 
 global error_detectado
 error_detectado = False
+
 
 # Configura el logging
 logging.basicConfig(filename=f'comprobante_{datetime.now().strftime("%Y-%m-%d")}.log', level=logging.INFO, 
@@ -39,19 +41,31 @@ class AplicacionComprobantes:
         self.frame = ttk.Frame(self.root)
         self.frame.pack(fill=tk.BOTH, expand=True)
 
-        # Agregar la lista de comprobantes impresos
-        self.listbox_comprobantes = tk.Listbox(self.frame, height=10)
-        self.listbox_comprobantes.pack(fill=tk.BOTH, expand=True)
-
-        # Barra de estado
-        self.status_bar = tk.Label(self.root, text="Listo", bd=1, relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-
+        self.text_area = ScrolledText(self.frame, wrap=tk.WORD, height=15)
+        self.text_area.pack(fill=tk.BOTH, expand=True)
+        
+        # Configurar etiquetas para colores
+        self.text_area.tag_configure('error', foreground='red')
+        self.text_area.tag_configure('neutro', foreground='gray')
+        self.text_area.tag_configure('exito', foreground='green')
+        
+         # Botón para reiniciar
+        self.boton_reiniciar = tk.Button(self.root, text="Reiniciar", command=self.reiniciar_proceso)
+        self.boton_reiniciar.pack()
+        
         # Cargar configuración
         self.cargar_configuracion()
-
+        
         # Iniciar el proceso después de que la interfaz se haya cargado completamente
         self.root.after_idle(self.iniciar_proceso)
+        
+        
+    def minimize_to_tray(self):
+        # Esconder la ventana principal
+        self.root.withdraw()
+        # Iniciar el icono en la bandeja del sistema
+        self.icon = pystray.Icon("ComprobanteApp", Image.open("logo.png"), "ComprobanteApp", self.create_menu())
+        self.icon.run()
 
     def cargar_configuracion(self):
         # Cargar la configuración desde el archivo config.ini
@@ -74,7 +88,7 @@ class AplicacionComprobantes:
         self.ancho_impresora = int(config["Impresora"]["ancho"])
         
     def iniciar_proceso(self):
-        self.actualizar_status('Iniciando proceso de comprobantes.')
+        self.mostrar_mensaje('Iniciando proceso de comprobantes.', 'neutro')
         self.ciclo_principal()
 
     def ciclo_principal(self):   
@@ -100,7 +114,9 @@ class AplicacionComprobantes:
             logging.error(mensaje_error)
             self.mostrar_error(mensaje_error)
             # Detenemos el ciclo aquí, no llamamos a after()
-            self.actualizar_status("Proceso detenido debido a un error. Haga clic en 'Reiniciar' para continuar.")
+            self.mostrar_mensaje("Proceso detenido debido a un error.\nHaga clic en 'Reiniciar' para continuar.")
+
+
 
     # Descarga y guarda el comprobante, para luego mandar a imprimir
     def procesar_comprobante(self, comprobante):
@@ -118,12 +134,9 @@ class AplicacionComprobantes:
                     # Reiniciar la conexión con la impresora para cada comprobante
                     impresora = Impresora(self.idvendor, self.idproduct, self.ancho_impresora)
                     self.imprimir_y_guardar_comprobante(detalle_comprobante, numero_completo, impresora)
-                    self.actualizar_status(f"Comprobante procesado: {numero_completo}")
-                    # Agregar comprobante a la lista
-                    self.listbox_comprobantes.insert(tk.END, numero_completo)
+                    self.mostrar_mensaje(f"Comprobante procesado: {numero_completo}", 'exito')
                 except RuntimeError as e:
                     error_str = str(e)
-    
                     if "device not found" in error_str.lower():
                         mensaje_error = f"Impresora no conectada."
                     else:
@@ -169,6 +182,7 @@ class AplicacionComprobantes:
         logging.error("Error persistente al obtener detalle del comprobante.")
         return None
 
+    
     def descargar_imagen_desde_url(url, reintentos=3):
         intento = 0
         while intento < reintentos:
@@ -194,81 +208,177 @@ class AplicacionComprobantes:
             nombre_archivo = f"{numero_completo}.txt"
             ruta_archivo = os.path.join(carpeta_guardado, nombre_archivo)
     
+            if os.path.exists(ruta_archivo):
+                return
+            
+            for linea in detalle_comprobante:
+                if linea:
+                    if "#img#" in linea:
+                        codigo_base64 = linea.split("#img#")[1]
+                        imagen_binaria = base64.b64decode(codigo_base64)
+                        imagen = Image.open(BytesIO(imagen_binaria))
+                        impresora.imprimir_imagen(imagen)
+                        impresora.imprimir_texto("\r\n", {})
+                    elif "#url#" in linea:
+                        url_imagen = linea.split("#url#")[1]
+                        imagen = descargar_imagen_desde_url(url_imagen)
+                        impresora.imprimir_imagen(imagen)
+                    elif "#logo#" in linea:
+                        if not os.path.exists("logo.jpg"):
+                            url_imagen = self.url_base + "app/logo.jpg"
+                            urllib.request.urlretrieve(url_imagen, "logo.jpg")
+                        imagen = Image.open("logo.jpg")
+                        impresora.imprimir_imagen(imagen)
+                    elif "#fin#" in linea:
+                        impresora.cortar()
+                    else:
+                        aDetalleLinea = linea.split(";")
+                        opciones = {
+                            "align": u'left', 
+                            "font": u'a', 
+                            "height": int(aDetalleLinea[1]) + 5, 
+                            "bold": aDetalleLinea[0] == "B"
+                        }
+                        impresora.imprimir_texto(aDetalleLinea[2], opciones)
+            
+            impresora.cortar()
+            impresora.cerrar()
+    
             with open(ruta_archivo, 'w') as archivo:
-                archivo.write("\n".join(detalle_comprobante))
+                archivo.write('\r\n'.join(detalle_comprobante))
     
-            self.imprimir_comprobante(detalle_comprobante, impresora)
-    
-            logging.info(f"Comprobante {numero_completo} guardado en {ruta_archivo}")
-    
+            logging.info(f"Comprobante impreso y guardado en: {ruta_archivo}")
+        except RuntimeError as e:
+            mensaje_error = f"Error en la impresora: {e}, comprobante: {detalle_comprobante}"
+            logging.error(mensaje_error)
+            self.mostrar_error(mensaje_error)
         except Exception as e:
-            mensaje_error = f"Error al imprimir y guardar comprobante {numero_completo}: {str(e)}"
+            mensaje_error = f"Error al imprimir y guardar comprobante: {e}, comprobante: {detalle_comprobante}"
             logging.error(mensaje_error)
             self.mostrar_error(mensaje_error)
 
-    def imprimir_comprobante(self, detalle_comprobante, impresora):
-        for linea in detalle_comprobante:
-            impresora.text(linea + "\n")
-        impresora.cut()
 
-    def eliminar_comprobantes_antiguos(self, carpeta, dias_a_eliminar):
-        tiempo_limite = time.time() - (dias_a_eliminar * 86400)
-        for archivo in os.listdir(carpeta):
-            ruta_archivo = os.path.join(carpeta, archivo)
-            if os.path.isfile(ruta_archivo):
-                if os.path.getmtime(ruta_archivo) < tiempo_limite:
-                    os.remove(ruta_archivo)
-                    logging.info(f"Archivo antiguo eliminado: {ruta_archivo}")
-    
+
+    def eliminar_comprobantes_antiguos(self, carpeta_guardado, dias_limite):
+        for archivo in os.listdir(carpeta_guardado):
+            ruta_archivo = os.path.join(carpeta_guardado, archivo)
+            fecha_creacion = datetime.fromtimestamp(os.path.getctime(ruta_archivo))
+            dias_diferencia = (datetime.now() - fecha_creacion).days
+            if dias_diferencia > dias_limite:
+                os.remove(ruta_archivo)
+                logging.info(f"Comprobante {archivo} eliminado por tener más de {dias_limite} días.")
+                
+    # Reiniciamos el ciclo principal
     def reiniciar_proceso(self):
         global error_detectado
         error_detectado = False
-        self.actualizar_status("Reiniciando proceso...")
+        self.mostrar_mensaje("Proceso reiniciado.", 'exito')
         self.ciclo_principal()
 
-    def actualizar_status(self, mensaje, tipo = ''):
-        if tipo == 'error':
-            self.status_bar.config(bg='red', fg='white', text=mensaje)
-        elif tipo == 'exito':
-            self.status_bar.config(bg='green', fg='white', text=mensaje)
-        else:
-            self.status_bar.config(bg='gray', fg='white', text=mensaje)
-        logging.info(mensaje)
+    def salir(self):
+        self.root.quit()
 
-    def mostrar_error(self, mensaje):
-        self.mostrar_mensaje(mensaje, 'error')
+    def crear_icono_bandeja(self):
+        imagen = PILImage.open("logo.png")
+        menu = (item('Abrir', self.mostrar_ventana), item('Salir', self.salir))
+        self.icono_bandeja = pystray.Icon("Gestor de Comprobantes", imagen, "Gestor de Comprobantes", menu)
+        threading.Thread(target=self.icono_bandeja.run).start()
 
-    def mostrar_exito(self, mensaje):
-        self.mostrar_mensaje(mensaje, 'exito')
 
+    def ocultar_ventana(self):
+        self.root.withdraw()
+
+    def mostrar_ventana(self):
+        self.root.deiconify()
+
+    def minimizar_ventana(self, event=None):
+        if self.root.state() == 'iconic':
+            self.ocultar_ventana()
+    
+    def mostrar_mensaje(self, mensaje, tipo):
+        hora_actual = datetime.now().strftime("%H:%M:%S")
+        mensaje_con_hora = f"[{hora_actual}] {mensaje}"
+        self.text_area.insert(tk.END, mensaje_con_hora + '\n', tipo)
+        self.text_area.yview(tk.END)
+        
     def mostrar_error(self, mensaje):
         global error_detectado
         error_detectado = True
-        self.status_bar.config(text=f"Error: {mensaje}")
-        logging.error(mensaje)
-        
+        hora_actual = datetime.now().strftime("%H:%M:%S")
+        mensaje_con_hora = f"[{hora_actual}] {mensaje}"
+        self.text_area.insert(tk.END, f"ERROR: {mensaje_con_hora}\n", 'error')
+        self.text_area.yview(tk.END)
 
-# Clase para manejar la impresora
+
+# Clase para gestionar la impresora
 class Impresora:
-    def __init__(self, idvendor, idproduct, ancho):
+    def __init__(self, idvendor, idproduct, ancho_impresora):
         try:
-            self.impresora = Usb(idvendor, idproduct)
-            self.ancho = ancho
+            self.printer = Usb(idvendor, idproduct)
         except Exception as e:
-            mensaje_error = f"Error al conectar con la impresora: {str(e)}"
-            logging.error(mensaje_error)
-            raise RuntimeError(mensaje_error)
-    
-    def text(self, texto):
-        self.impresora.text(texto)
+            raise RuntimeError(f"Error al inicializar la impresora: {e}")
+        self.ancho_impresora = ancho_impresora
 
-    def cut(self):
-        self.impresora.cut()
+    def imprimir_texto(self, texto, opciones):
+        try:
+            if opciones.get("align") == u'right':
+                texto = texto.rjust(self.ancho_impresora)
+            elif opciones.get("align") == u'center':
+                texto = texto.center(self.ancho_impresora)
+            self.printer.text(texto)
+        except Exception as e:
+            raise RuntimeError(f"Error al imprimir texto: {e}")
 
-def iniciar_interfaz():
-    root = tk.Tk()
-    app = AplicacionComprobantes(root)
-    root.mainloop()
+    def imprimir_imagen(self, imagen):
+        try:
+            imagen_rescalada = self.reescalar_imagen(imagen)
+            self.printer.image(imagen_rescalada)
+        except Exception as e:
+            raise RuntimeError(f"Error al imprimir imagen: {e}")
+        
+    def reescalar_imagen(self, imagen):
+        try:
+            factor_escala_ancho = self.ancho_impresora / float(imagen.width)
+            factor_escala_altura = factor_escala_ancho
+            nueva_anchura = int(imagen.width * factor_escala_ancho)
+            nueva_altura = int(imagen.height * factor_escala_altura)
+            imagen.info['dpi'] = (300, 300)
+            imagen = ImageOps.exif_transpose(imagen)
+            imagen = imagen.resize((nueva_anchura, nueva_altura), Image.ANTIALIAS)
+            return imagen
+        except Exception as e:
+            raise RuntimeError(f"Error al reescalar imagen: {e}")
 
-if __name__ == "__main__":
-    iniciar_interfaz()
+    def cortar(self):
+        try:
+            self.printer.cut()
+        except Exception as e:
+            raise RuntimeError(f"Error al cortar el papel: {e}")
+
+    def cerrar(self):
+        try:
+            self.printer.close()
+        except Exception as e:
+            raise RuntimeError(f"Error al cerrar la impresora: {e}")
+
+def descargar_imagen_desde_url(url, reintentos=3):
+    intento = 0
+    while intento < reintentos:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            imagen_binaria = response.content
+            return Image.open(BytesIO(imagen_binaria))
+        except Exception as e:
+            intento += 1
+            espera = 2 ** intento + random.uniform(0, 1)
+            logging.error(f"Error al descargar la imagen desde la URL: {e}. Reintentando en {espera:.2f} segundos...")
+            time.sleep(espera)
+    logging.error("Error persistente al descargar la imagen.")
+    return None
+
+root = tk.Tk()
+ # Asignar el comportamiento al cerrar la ventana
+app = AplicacionComprobantes(root)
+root.protocol("WM_DELETE_WINDOW", app.minimize_to_tray)
+root.mainloop()
