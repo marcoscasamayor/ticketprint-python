@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TicketPrint
+Exec=/home/sc3/Documentos/TicketPrint/ejecutar.sh
+Terminal=false
+Hidden=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

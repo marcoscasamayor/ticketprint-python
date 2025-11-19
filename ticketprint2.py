@@ -198,6 +198,16 @@ class AplicacionComprobantes:
                 time.sleep(espera)
         logging.error("Error persistente al descargar la imagen.")
         return None
+    
+    def map_font_size(self, valor):
+        if valor >= 24:   # ejemplo
+            return (2, 2, 'a')
+        elif valor >= 15:
+            return (2,2, 'a')
+        elif valor >= 11:
+            return (2,2, 'b') 
+        else:
+            return (1, 1, 'a')
 
     def imprimir_y_guardar_comprobante(self, detalle_comprobante, numero_completo, impresora):
         try:
@@ -233,10 +243,13 @@ class AplicacionComprobantes:
                         impresora.cortar()
                     else:
                         aDetalleLinea = linea.split(";")
+                        size = int(aDetalleLinea[1])
+                        width, height, font = self.map_font_size(size)
                         opciones = {
                             "align": u'left', 
-                            "font": u'a', 
-                            "height": int(aDetalleLinea[1]) + 5, 
+                            "font": font, 
+                            "width": width,
+                            "height": height,
                             "bold": aDetalleLinea[0] == "B"
                         }
                         impresora.imprimir_texto(aDetalleLinea[2], opciones)
@@ -256,8 +269,6 @@ class AplicacionComprobantes:
             mensaje_error = f"Error al imprimir y guardar comprobante: {e}, comprobante: {detalle_comprobante}"
             logging.error(mensaje_error)
             self.mostrar_error(mensaje_error)
-
-
 
     def eliminar_comprobantes_antiguos(self, carpeta_guardado, dias_limite):
         for archivo in os.listdir(carpeta_guardado):
@@ -316,7 +327,9 @@ class Impresora:
         try:
             self.printer = Usb(idvendor, idproduct)
         except Exception as e:
-            raise RuntimeError(f"Error al inicializar la impresora: {e}")
+            mensaje_error = f"Error al conectar con la impresora: {str(e)}"
+            logging.error(mensaje_error)
+            raise RuntimeError(mensaje_error)
         self.ancho_impresora = ancho_impresora
 
     def imprimir_texto(self, texto, opciones):
@@ -325,7 +338,28 @@ class Impresora:
                 texto = texto.rjust(self.ancho_impresora)
             elif opciones.get("align") == u'center':
                 texto = texto.center(self.ancho_impresora)
-            self.printer.text(texto)
+
+            width=1
+            height=1
+            bold=False
+            font='a'
+
+            if(opciones.get('font') != None):
+                font = opciones.get('font')
+            if(opciones.get('width') != None):
+                width = opciones.get('width')
+            if(opciones.get('height') != None):
+                height = opciones.get('height')
+            if(opciones.get('bold')):
+                bold = opciones.get('bold')
+ 
+            # Aplicar formato ESC/POS
+            self.printer.set(width=width, height=height, bold=bold, custom_size=True, font=font)
+
+            self.printer.text(texto + "\n")
+
+            # Reset
+            self.printer.set(width=1, height=1, bold=False, custom_size=True)
         except Exception as e:
             raise RuntimeError(f"Error al imprimir texto: {e}")
 
@@ -344,7 +378,7 @@ class Impresora:
             nueva_altura = int(imagen.height * factor_escala_altura)
             imagen.info['dpi'] = (300, 300)
             imagen = ImageOps.exif_transpose(imagen)
-            imagen = imagen.resize((nueva_anchura, nueva_altura), Image.ANTIALIAS)
+            imagen = imagen.resize((nueva_anchura, nueva_altura), Image.LANCZOS)
             return imagen
         except Exception as e:
             raise RuntimeError(f"Error al reescalar imagen: {e}")
